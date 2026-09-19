@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-agent model of political polarization</title>
+<style>
+:root{--bg:#000;--panel:#fff;--ink:#1f2328;--mute:#6a717a;--line:#d8dce0;--A:#2f6fdf;--B:#d9483b}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--panel:#1d2125;--ink:#e3e6e9;--mute:#949ba3;--line:#30363c;--A:#5b8ff0;--B:#ec6a5e}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:12.5px/1.35 Arial,Helvetica,sans-serif}
+#app{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:12px;padding:12px;max-width:1440px;margin:0 auto}
+@media (max-width:980px){#app{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);padding:10px;margin-bottom:12px}
+h2{font-size:13px;margin:0 0 8px;font-weight:600}
+h3{font-size:11.5px;color:var(--mute);margin:10px 0 6px;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px}
+.box{border:1px solid var(--line);padding:3px 6px;min-width:0;display:block}
+.box .k{font-size:10.5px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.box .v{font-size:13.5px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.box input{width:100%;border:0;padding:0;background:transparent;color:inherit;font:inherit;font-size:13px;font-variant-numeric:tabular-nums}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+button,select{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);padding:4px 10px;cursor:pointer}
+button:hover,select:hover{border-color:var(--mute)}
+:focus-visible{outline:2px solid var(--A);outline-offset:1px}
+#map{width:100%;aspect-ratio:1/1;display:block;cursor:grab}
+.chart{width:100%;display:block}
+.legend{display:flex;gap:12px;font-size:11px;color:var(--mute);flex-wrap:wrap;margin-top:6px}
+.sw{display:inline-block;width:9px;height:9px;margin-right:4px;vertical-align:-1px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+td{padding:3px 4px;border-top:1px solid var(--line);white-space:nowrap}
+.bar{height:6px;width:80px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%}
+#log{font-size:11px;color:var(--mute);max-height:130px;overflow:auto;margin:0;padding:0;list-style:none}
+#log li{padding:2px 0;border-top:1px solid var(--line)}
+.small{font-size:11px;color:var(--mute)}
+header{max-width:1440px;margin:0 auto;padding:20px 12px 4px}
+header h1{font-size:22px;font-weight:600;margin:0 0 8px;color:#fff}
+header p{font-size:14px;line-height:1.5;color:#fff;margin:0 0 10px;max-width:760px}
+#presets{gap:8px}
+#presets .plabel{font-size:14px;font-weight:600;margin-right:4px}
+#presets button{font-size:13px;padding:7px 14px;border-width:1.5px}
+#presets button.on{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.maptools{position:absolute;top:8px;right:8px;display:flex;gap:4px}
+.maptools button{padding:2px 9px;background:var(--panel)}
+.mapwrap{position:relative}
+.hl svg{vertical-align:-3px;margin-right:4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Multi-agent model of political polarization</h1>
+  <p>Models agents with social networks who respond to policies and demographic change, as well as parties with factions, in attempt to recreate real world conditions and hopefully locate causes of polarization. Top bar contains presets that I've found are particularly interesting. Currently, factions don't really have that much of an impact, but I think they'll become important at some point.</p>
+  <p>Pressing a button switches the model to a preset that is supposed to do what the text on that button does (although the model is a bit grainy at the moment, so it's often a bit buggy). Examples include the polarization button, which turns down how much political difference people are willing to put up with, and the faction churn button, which increases the amount of internal change in parties.</p>
+  <p>The actors have families, homes, social networks, wealth, personal beliefs. The parties pass policies, and then the actors see how they're affected and decide how to change their political beliefs based on that.</p>
+  <p>Foreign policy not modeled, sorry.</p>
+</header>
+<div id="app">
+  <div>
+    <div class="card"><div class="row" id="presets"><span class="plabel">Preset</span></div></div>
+    <div class="card">
+      <div class="row" style="margin-bottom:8px">
+        <button id="play">Play</button>
+        <button id="stepb">Step</button>
+        <button id="reset">Reset</button>
+        <label class="small">Speed <input id="speed" type="range" min="1" max="60" value="4"></label>
+        <select id="bg" aria-label="Map layer">
+          <option value="terrain">Terrain</option><option value="climate">Climate</option>
+          <option value="land">Land use</option><option value="districts">Districts</option>
+          <option value="economy">Economy</option>
+        </select>
+        <select id="col" aria-label="Agent color">
+          <option value="belief">Beliefs</option><option value="party">Party</option>
+          <option value="wealth">Wealth</option><option value="health">Health</option>
+          <option value="qol">Quality of life</option><option value="pid">Party ID</option><option value="aff">Affect</option><option value="emp">Employment</option>
+          <option value="none">Hide agents</option>
+        </select>
+        <label class="small"><input type="checkbox" id="houses" checked> Houses</label>
+        <label class="small"><input type="checkbox" id="daily"> Daily location</label>
+      </div>
+      <div class="mapwrap"><canvas id="map" width="1024" height="1024"></canvas>
+        <div class="maptools"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit">Fit</button></div></div>
+      <div class="legend" id="legend"></div>
+      <div class="legend hl" id="hlegend"></div>
+    </div>
+    <div class="card"><h2>Polarization</h2><canvas id="chart" class="chart" width="900" height="140"></canvas><div class="legend" id="clegend"></div></div>
+    <div class="card"><h2>Economy</h2><canvas id="chart2" class="chart" width="900" height="110"></canvas><div class="legend" id="clegend2"></div></div>
+  </div>
+  <div>
+    <div class="card"><h2>State</h2><div class="grid" id="stats"></div></div>
+    <div class="card"><h2>Factions</h2><table id="fac"></table></div>
+    <div class="card"><h2>Policy</h2><div class="grid" id="policy"></div></div>
+    <div class="card"><h2>Agent</h2><div class="grid" id="agent"></div></div>
+    <div class="card"><h2>Events</h2><ul id="log"></ul></div>
+    <div class="card"><h2>Parameters</h2><div id="params"></div><p class="small" style="margin:8px 0 0">↺ takes effect on Reset</p></div>
+  </div>
+</div>
+
+<script id="sim">
+// [key, label, default, step, needsReset]
+const SCHEMA = [
+  ['Key parameters', [
+    ['boundedConf','Bounded confidence (0/1)',1,1], ['tolerance','Tolerance',0.7,0.05,1], ['socialPull','Network pull',0.005,0.001],
+    ['leaderCue','Leader cue',0.0005,0.0001], ['motivated','Motivated reasoning',0.5,0.05], ['affTie','Affect on ties',0.6,0.05],
+    ['qolPull','QoL pull',0.05,0.01], ['retro','Retrospective',3,0.5], ['factionInfluence','Faction influence',0.1,0.02],
+    ['powerShift','Power shift',0.5,0.05], ['movePolitical','Political sorting',0.3,0.05], ['eventRate','Event rate',0.004,0.001],
+  ]],
+  ['World', [
+    ['seed','Seed',7,1,1], ['agents','Agents',4000,100,1], ['districtsPerSide','Districts / side',4,1,1],
+    ['cities','Cities',6,1,1], ['maxTies','Max ties',16,1,1],
+  ]],
+  ['Social', [
+    ['homophily','Homophily',1,0.1], ['polDrop','Political drop',0.01,0.002], ['tieRate','Tie formation',0.05,0.01],
+    ['randDrop','Random drop',0.0005,0.0001], ['contacts','Contacts / tick',2,1], ['outing','Outing rate',0.5,0.05],
+  ]],
+  ['Beliefs', [
+    ['contactPull','Contact pull',0.001,0.0005], ['qolMemory','QoL memory',0.02,0.005], ['backlash','Policy backlash',0.0005,0.0001],
+    ['selfInterest','Self-interest',0.0005,0.0001], ['beliefNoise','Noise',0.003,0.001],
+  ]],
+  ['Identity & affect', [
+    ['idStability','ID stability',0.4,0.05], ['affVote','Affect on vote',0.3,0.05], ['ageSus','Age susceptibility',12,1],
+    ['idGrowth','ID growth',0.0005,0.0001], ['affectRate','Affect rate',0.005,0.001], ['contactThaw','Cross-party contact',0.001,0.0005],
+    ['campaignHeat','Campaign heat',0.002,0.0005],
+  ]],
+  ['Politics', [
+    ['partyLoyalty','Party loyalty',0.15,0.05], ['rebuke','Rebuke',10,1], ['policyNoise','Policy noise',0.2,0.05],
+    ['factionDrift','Faction drift',0.15,0.05], ['primaryTurnout','Primary turnout',0.35,0.05], ['localAdapt','Local adaptation',0.3,0.05],
+    ['turnout','Turnout',0.7,0.05], ['electionInterval','Election interval',360,10],
+  ]],
+  ['Economy', [
+    ['taxDrag','Tax drag',0.5,0.05], ['hireRate','Hire rate',0.02,0.005], ['layoffRate','Layoff rate',0.002,0.0005],
+    ['wage','Wage',1,0.1], ['living','Living cost',0.8,0.05], ['mortality','Mortality',0.00005,0.00001],
+  ]],
+  ['Migration', [
+    ['moveRate','Move rate',0.003,0.001], ['moveThreshold','Move threshold',0.55,0.01], ['moveDrop','Tie loss on move',0.6,0.05],
+    ['moveCost','Move cost',5,1],
+  ]],
+  ['Events', [ ['eventSeverity','Severity',1,0.1] ]],
+];
+const PRESETS = {
+  'Default': {},
+  'Consensus': {boundedConf:0,tolerance:1.2,socialPull:0.01,contactPull:0.003,homophily:0.5,affTie:0.1,affectRate:0.002,motivated:0.1,polDrop:0.002,movePolitical:0},
+  'Polarized': {tolerance:0.4,homophily:1.6,polDrop:0.03,affTie:0.9,affVote:0.6,motivated:0.8,leaderCue:0,contactThaw:0,campaignHeat:0.004,movePolitical:0.8,moveRate:0.01,socialPull:0.008},
+  'Volatile swings': {motivated:0,idStability:0.05,partyLoyalty:0,retro:8,qolPull:0.15,affVote:0,eventRate:0.012,eventSeverity:1.5,policyNoise:0.4},
+  'Faction lock-in': {factionInfluence:0.4,powerShift:0.8,factionDrift:0.3,rebuke:0},
+  'Faction churn': {factionInfluence:0,powerShift:0.3,rebuke:30,policyNoise:0.5,primaryTurnout:0.2},
+  'Big sort': {movePolitical:1.5,moveRate:0.02,moveThreshold:0.7,moveCost:1,moveDrop:0.8},
+  'Crisis': {eventRate:0.015,eventSeverity:2,taxDrag:0.8},
+};
+const FACTIONS = [
+  {name:'A Progressive',party:0,e:-0.65,s:-0.55}, {name:'A Liberal',party:0,e:-0.3,s:-0.3}, {name:'A Labor',party:0,e:-0.5,s:0.15},
+  {name:'B Market',party:1,e:0.6,s:-0.05}, {name:'B Moderate',party:1,e:0.3,s:0.25}, {name:'B Traditional',party:1,e:0.35,s:0.6},
+];
+
+const Sim = (() => {
+  const G = 128, CELLS = G*G, EV_R = 10, LW = Math.log1p(500);
+  const S = {G};
+  let P, R = Math.random;
+  let N, K, home, loc, work, age, health, wealth, edu, be, bs, nbE, nbS, qol, qolBase, qolElec, tol, wn, pid, aff, jx, jy, emp, party, fam, famStart, famStamp, net, deg;
+  let econD, localF, svc, poll, dBE, dBS, dN, cnt, start, pos, list;
+  const deaths = [], movers = [];
+
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+  function gauss(){let u=0;while(u===0)u=R();return Math.sqrt(-2*Math.log(u))*Math.cos(6.283185307*R())}
+  const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+  const wnorm=w=>Math.min(1,Math.log1p(w)/LW);
+  function makeNoise(){const lat=new Float32Array(1024);for(let i=0;i<1024;i++)lat[i]=R();
+    return (x,y)=>{const xi=Math.floor(x),yi=Math.floor(y),fx=x-xi,fy=y-yi,u=fx*fx*(3-2*fx),v=fy*fy*(3-2*fy);
+      const a=xi&31,b=yi&31,a1=(xi+1)&31,b1=(yi+1)&31;
+      return (lat[b*32+a]*(1-u)+lat[b*32+a1]*u)*(1-v)+(lat[b1*32+a]*(1-u)+lat[b1*32+a1]*u)*v}}
+  function fbm(n,x,y){let s=0,a=0.5,f=1,t=0;for(let o=0;o<4;o++){s+=a*n(x*f,y*f);t+=a;a*=0.5;f*=2}return s/t}
+  function log(msg,d){S.log.unshift({t:S.tick,msg:d!=null?`${msg}, district ${d+1}`:msg});if(S.log.length>60)S.log.pop()}
+
+  // ---------- world ----------
+  function buildWorld(){
+    const elev=new Float32Array(CELLS),temp=new Float32Array(CELLS),rain=new Float32Array(CELLS),comfort=new Float32Array(CELLS),dens=new Float32Array(CELLS);
+    const ctype=new Uint8Array(CELLS),distOf=new Uint16Array(CELLS);
+    const n1=makeNoise(),n2=makeNoise(),n3=makeNoise();
+    let mn=Infinity,mx=-Infinity;
+    for(let y=0;y<G;y++)for(let x=0;x<G;x++){const c=y*G+x,nx=x/G,ny=y/G;
+      let e=fbm(n1,nx*4+0.5,ny*4+0.5);const ed=Math.min(nx,1-nx,ny,1-ny);e-=Math.max(0,0.1-ed)*3;
+      elev[c]=e;if(e<mn)mn=e;if(e>mx)mx=e}
+    const WL=0.3;
+    for(let y=0;y<G;y++)for(let x=0;x<G;x++){const c=y*G+x,nx=x/G,ny=y/G;
+      const e=elev[c]=(elev[c]-mn)/(mx-mn);
+      temp[c]=clamp(1-0.75*ny-0.6*Math.max(0,e-0.55)+0.25*(fbm(n3,nx*3,ny*3)-0.5),0,1);
+      rain[c]=clamp(fbm(n2,nx*3+7,ny*3+3)*1.1+0.25*(0.5-nx),0,1);
+      comfort[c]=clamp(1-1.4*Math.abs(temp[c]-0.6)-Math.abs(rain[c]-0.55),0,1)}
+    const cities=[];
+    for(let t=0;t<20000&&cities.length<P.cities;t++){const c=R()*CELLS|0,e=elev[c];if(e<WL+0.03||e>0.65)continue;
+      const x=c%G,y=c/G|0;if(cities.some(q=>(q.x-x)**2+(q.y-y)**2<400))continue;cities.push({x,y,r:4+R()*7,w:0.6+R()*0.5})}
+    for(let c=0;c<CELLS;c++){if(elev[c]<=WL)continue;const x=c%G,y=c/G|0;let s=0;
+      for(const q of cities){const d2=(q.x-x)**2+(q.y-y)**2;s+=q.w*Math.exp(-d2/(2*q.r*q.r))}dens[c]=Math.min(1,s)}
+    for(let c=0;c<CELLS;c++){if(elev[c]<=WL){ctype[c]=0;continue}const r=R();
+      ctype[c]=dens[c]>0.3?(r<0.2?3:r<0.28?4:2):(r<0.025?3:r<0.04?4:1)}
+    const D=Math.max(1,P.districtsPerSide|0),ND=D*D,dsz=G/D;
+    const workL=[],commons=[],allWork=[],landN=new Float32Array(ND),indShare=new Float32Array(ND);
+    for(let d=0;d<ND;d++){workL.push([]);commons.push([])}
+    for(let c=0;c<CELLS;c++){const x=c%G,y=c/G|0;const d=Math.min(D-1,(x/dsz)|0)+D*Math.min(D-1,(y/dsz)|0);distOf[c]=d;
+      const t=ctype[c];if(t===3){workL[d].push(c);allWork.push(c)}if(t===4)commons[d].push(c);if(t>0)landN[d]++}
+    for(let d=0;d<ND;d++)indShare[d]=workL[d].length/Math.max(1,landN[d]);
+    const cells=[],cum=[];let tot=0;
+    for(let c=0;c<CELLS;c++){const t=ctype[c];const w=t===1?0.02+0.06*comfort[c]:t===2?0.4+3*dens[c]:0;if(w>0){tot+=w;cells.push(c);cum.push(tot)}}
+    S.W={elev,temp,rain,comfort,dens,ctype,distOf,D,ND,WL,work:workL,commons,allWork,indShare,cities,
+      placeCells:Int32Array.from(cells),placeCum:Float64Array.from(cum),placeTot:tot};
+  }
+  function samplePlace(){const W=S.W,r=R()*W.placeTot;let lo=0,hi=W.placeCum.length-1;
+    while(lo<hi){const m=(lo+hi)>>1;if(W.placeCum[m]<r)lo=m+1;else hi=m}return W.placeCells[lo]}
+  function assignWork(i){const W=S.W,h=home[i],l=W.work[W.distOf[h]];
+    work[i]=l.length&&R()<0.9?l[R()*l.length|0]:W.ctype[h]===1||!W.allWork.length?h:W.allWork[R()*W.allWork.length|0]}
+
+  // ---------- ties ----------
+  function tied(i,j){const b=i*K,e=b+deg[i];for(let k=b;k<e;k++)if(net[k]===j)return true;return false}
+  function addTie(i,j){net[i*K+deg[i]++]=j;net[j*K+deg[j]++]=i}
+  function rmOne(i,j){const b=i*K,n=deg[i];for(let k=0;k<n;k++)if(net[b+k]===j){net[b+k]=net[b+n-1];deg[i]=n-1;return}}
+  function removeTie(i,j){rmOne(i,j);rmOne(j,i)}
+  function clearTies(i){while(deg[i]>0)removeTie(i,net[i*K+deg[i]-1])}
+  function sim(i,j){const de=be[i]-be[j],ds=bs[i]-bs[j];const bd=Math.sqrt(de*de+ds*ds)/2.83;
+    const x=clamp(1-P.homophily*(1.2*bd+0.3*Math.abs(wn[i]-wn[j])+0.2*Math.abs(age[i]-age[j])/60),0,1);
+    return party[i]!==party[j]?x*(1-0.5*P.affTie*Math.max(aff[i],aff[j])):x}
+  function perceive(i,dq,bias){const m=P.motivated*pid[i];return dq*(1-m)+m*bias*(party[i]===S.gov?1:-1)}
+  const sus=i=>0.25+0.75*Math.exp(-Math.max(0,age[i]-18)/P.ageSus);
+  function leader(p){let b=null;for(const f of S.factions)if(f.party===p&&(!b||f.power>b.power))b=f;return b}
+
+  // ---------- agents ----------
+  function buildAgents(){
+    const W=S.W;N=P.agents|0;K=Math.max(2,Math.min(64,P.maxTies|0));
+    const F32=()=>new Float32Array(N);
+    home=new Int32Array(N);loc=new Int32Array(N);work=new Int32Array(N);fam=new Int32Array(N);
+    age=F32();health=F32();wealth=F32();edu=F32();be=F32();bs=F32();nbE=F32();nbS=F32();
+    qol=F32();qolBase=F32();qolElec=F32();tol=F32();wn=F32();pid=F32();aff=F32();jx=F32();jy=F32();
+    emp=new Uint8Array(N);party=new Uint8Array(N);net=new Int32Array(N*K).fill(-1);deg=new Uint8Array(N);
+    const fs=[];let i=0;
+    while(i<N){const r=R();const size=Math.min(N-i,r<0.28?1:r<0.62?2:r<0.8?3:r<0.93?4:5);
+      const cell=samplePlace(),dn=W.dens[cell];
+      const bAge=20+R()*55,bEdu=clamp(0.25+0.35*R()+0.3*dn+0.1*gauss(),0,1);
+      const bS=clamp(0.1-0.9*(dn-0.25)+0.45*gauss(),-1,1),bE=0.35*gauss();
+      fs.push(i);
+      for(let m=0;m<size;m++,i++){home[i]=cell;fam[i]=fs.length-1;
+        age[i]=m===0?bAge:R()<0.55?clamp(bAge+gauss()*4,18,95):Math.max(18,bAge+(R()<0.5?-26:26)+gauss()*3);
+        edu[i]=clamp(bEdu+gauss()*0.12,0,1);
+        wealth[i]=40*Math.exp(gauss()*0.9)*(0.4+1.2*edu[i]);wn[i]=wnorm(wealth[i]);
+        be[i]=clamp(bE+0.6*(wn[i]-0.5)+0.2*gauss(),-1,1);
+        bs[i]=clamp(bS-0.3*(edu[i]-0.5)+0.2*gauss(),-1,1);
+        health[i]=clamp(0.95-Math.max(0,age[i]-40)*0.009+gauss()*0.05,0.05,1);
+        emp[i]=age[i]>=65?2:R()<0.92?1:0;
+        tol[i]=P.tolerance*(0.6+0.8*R());jx[i]=R();jy[i]=R();
+        pid[i]=clamp(0.2+0.6*(age[i]-18)/60+0.1*gauss(),0.05,1);aff[i]=clamp(0.3+0.1*gauss(),0,1);
+        if(emp[i]===1)assignWork(i);else work[i]=cell}}
+    fs.push(N);famStart=Int32Array.from(fs);famStamp=new Int32Array(fs.length).fill(-1);
+    for(let f=0;f+1<famStart.length;f++)for(let a=famStart[f];a<famStart[f+1];a++)for(let b=a+1;b<famStart[f+1];b++)if(deg[a]<K&&deg[b]<K)addTie(a,b);
+    const mem=Array.from({length:W.ND},()=>[]);for(let j=0;j<N;j++)mem[W.distOf[home[j]]].push(j);
+    for(let a=0;a<N;a++){const m=mem[W.distOf[home[a]]];let tries=30;
+      while(deg[a]<K*0.6&&tries--){const b=m[R()*m.length|0];if(b===a||deg[b]>=K||tied(a,b))continue;const s=sim(a,b);if(R()<s*s)addTie(a,b)}}
+  }
+  function reborn(i){
+    const f=fam[i],a=famStart[f],b=famStart[f+1];clearTies(i);
+    let se=0,ss=0,sd=0,n=0;for(let j=a;j<b;j++)if(j!==i){se+=be[j];ss+=bs[j];sd+=edu[j];n++}
+    age[i]=18+R()*4;health[i]=0.9+0.08*R();edu[i]=clamp((n?sd/n:0.45)+0.05+gauss()*0.2,0,1);
+    be[i]=clamp((n?se/n:0)+gauss()*0.3,-1,1);bs[i]=clamp((n?ss/n:0)+gauss()*0.3,-1,1);
+    wealth[i]=wealth[i]*0.6+5;wn[i]=wnorm(wealth[i]);tol[i]=P.tolerance*(0.6+0.8*R());
+    emp[i]=R()<0.6?1:0;if(emp[i])assignWork(i);else work[i]=home[i];
+    for(let j=a;j<b;j++)if(j!==i&&deg[i]<K&&deg[j]<K)addTie(i,j);
+    qol[i]=calcQ(i);qolBase[i]=qolElec[i]=qol[i];
+    let pa=0,pn=0,af=0;for(let j=a;j<b;j++)if(j!==i){pa+=party[j];af+=aff[j];pn++}
+    const cA=center(0),cB=center(1);
+    party[i]=pn?(pa/pn>0.5?1:pa/pn<0.5?0:(R()<0.5?0:1)):(Math.hypot(be[i]-cA[0],bs[i]-cA[1])<=Math.hypot(be[i]-cB[0],bs[i]-cB[1])?0:1);
+    pid[i]=0.15;aff[i]=pn?0.8*af/pn:0.3;
+    S.deaths++;
+  }
+  function relocate(f){
+    const W=S.W,a=famStart[f],b=famStart[f+1],n=b-a;if(n<=0)return;
+    let fe=0,fs=0,fd=0;for(let i=a;i<b;i++){fe+=be[i];fs+=bs[i];fd+=edu[i]}fe/=n;fs/=n;fd/=n;
+    const score=c=>{const d=W.distOf[c],de=fe-dBE[d],ds=fs-dBS[d];
+      return 0.4*econD[d]+0.25*W.comfort[c]+0.25*svc[d]-P.movePolitical*Math.sqrt(de*de+ds*ds)/2.83+0.1*W.dens[c]*fd};
+    const cur=home[a];let best=cur,bsc=score(cur)+0.03;
+    for(let t=0;t<12;t++){const c=samplePlace(),sc=score(c);if(sc>bsc){bsc=sc;best=c}}
+    if(best===cur)return;
+    const newD=W.distOf[best]!==W.distOf[cur];
+    for(let i=a;i<b;i++){home[i]=best;wealth[i]=Math.max(0,wealth[i]-P.moveCost*0.5);
+      if(newD){if(emp[i]===1){if(R()<0.6){emp[i]=0;work[i]=best}else assignWork(i)}
+        for(let k=deg[i]-1;k>=0;k--){const j=net[i*K+k];if(fam[j]!==fam[i]&&R()<P.moveDrop)removeTie(i,j)}}
+      else if(emp[i]!==1)work[i]=best}
+    S.moves++;
+  }
+  function calcQ(i){const W=S.W,h=home[i],d=W.distOf[h],pp=S.pol,st=emp[i];
+    return 0.25*wn[i]+0.25*health[i]+(st===1?0.12:st===2?0.1:0)+0.1*W.comfort[h]+0.12*svc[d]
+      +0.1*(1-Math.abs(bs[i]-pp.soc)/2)+0.06*Math.min(1,deg[i]/8)}
+  function center(p){let e=0,s=0,w=0;for(const f of S.factions)if(f.party===p){e+=f.power*f.e;s+=f.power*f.s;w+=f.power}return[e/w,s/w]}
+  function updateParty(force){const cA=center(0),cB=center(1);
+    for(let i=0;i<N;i++){const dA=Math.hypot(be[i]-cA[0],bs[i]-cA[1]),dB=Math.hypot(be[i]-cB[0],bs[i]-cB[1]);
+      if(force){party[i]=dA<=dB?0:1;continue}const mg=0.05+P.idStability*pid[i];
+      if((party[i]===0&&dB<dA-mg)||(party[i]===1&&dA<dB-mg)){party[i]^=1;pid[i]=0.1;aff[i]*=0.5;S.switches++}}}
+  function districtMeans(){const W=S.W;dBE.fill(0);dBS.fill(0);dN.fill(0);
+    for(let i=0;i<N;i++){const d=W.distOf[home[i]];dBE[d]+=be[i];dBS[d]+=bs[i];dN[d]++}
+    for(let d=0;d<W.ND;d++)if(dN[d]){dBE[d]/=dN[d];dBS[d]/=dN[d]}}
+
+  // ---------- policy ----------
+  function setPolicy(pe,ps,comp){
+    const wel=Math.max(0.05,0.35-0.2*pe),hea=Math.max(0.05,0.3-0.12*pe),inf=Math.max(0.05,0.2+0.25*pe),grn=Math.max(0.02,0.15-0.1*pe),s=wel+hea+inf+grn;
+    S.pol={tax:clamp(0.25-0.18*pe,0.05,0.5),wel:wel/s,hea:hea/s,inf:inf/s,grn:grn/s,reg:clamp(0.5-0.45*pe,0,1),soc:clamp(ps,-1,1),comp,pe,ps}}
+
+  // ---------- events ----------
+  function maybeEvent(){
+    if(R()>P.eventRate)return;
+    const W=S.W,pp=S.pol,sev=P.eventSeverity*(0.5+R()),k=R();
+    const mit=1-Math.min(0.7,pp.grn*pp.comp*3.5);
+    if(k<0.2){S.natEcon=Math.max(0.4,S.natEcon-0.15*sev);log('Recession')}
+    else if(k<0.32){S.natEcon+=0.1*sev;log('Boom')}
+    else if(k<0.5){const d=R()*W.ND|0,up=R()<0.5;localF[d]+=(up?0.3:-0.3)*sev;log(up?'Regional boom':'Plant closure',d)}
+    else if(k<0.8){let c;do c=R()*CELLS|0;while(W.elev[c]<=W.WL);
+      const x0=c%G,y0=c/G|0,t=W.temp[c],r=W.rain[c],e=W.elev[c];
+      const name=r<0.4?'Drought':e<W.WL+0.08||r>0.65?'Flood':t>0.6?'Heatwave':'Storm',dmg=sev*mit;let hits=0;
+      for(let i=0;i<N;i++){const h=home[i],dx=h%G-x0,dy=(h/G|0)-y0;if(dx*dx+dy*dy>=EV_R*EV_R)continue;hits++;
+        wealth[i]*=1-0.15*dmg*(W.ctype[h]===1&&name==='Drought'?2:1);
+        health[i]=Math.max(0,health[i]-(name==='Heatwave'?0.12*age[i]/70:0.06)*dmg);
+        if(emp[i]===1&&R()<0.1*dmg)emp[i]=0}
+      localF[W.distOf[c]]-=0.08*dmg;log(`${name} (${hits} hit)`,W.distOf[c]);S.lastEvent={x:x0,y:y0,t:S.tick}}
+    else{const hs=S.healthSub||0;
+      for(let i=0;i<N;i++)health[i]=Math.max(0,health[i]-0.12*sev*(0.4+W.dens[home[i]])*(1-0.6*hs)*(age[i]/60));log('Epidemic')}
+  }
+
+  // ---------- election ----------
+  function election(first){
+    const W=S.W,ND=W.ND,F=S.factions,la=P.localAdapt;
+    const members=Array.from({length:ND},()=>[]);for(let i=0;i<N;i++)members[W.distOf[home[i]]].push(i);
+    let meanQ=0;for(let i=0;i<N;i++)meanQ+=qol[i];meanQ/=N;const dQ=meanQ-S.lastMeanQ;
+    for(const f of F){f.wins=0;f.noms=0;f.perf=0;f.over=0;f.vE=0;f.vS=0;f.vN=0}
+    const seats=[0,0],res=new Array(ND).fill(null);
+    for(let d=0;d<ND;d++){const m=members[d];if(!m.length)continue;const noms=[null,null];
+      for(let p=0;p<2;p++){let me=0,ms=0,mn=0;for(const i of m)if(party[i]===p){me+=be[i];ms+=bs[i];mn++}if(mn){me/=mn;ms/=mn}
+        const fs=F.filter(f=>f.party===p),nf=fs.length;
+        const cands=fs.map(f=>({f,e:clamp((mn?f.e*(1-la)+me*la:f.e)+0.05*gauss(),-1,1),s:clamp((mn?f.s*(1-la)+ms*la:f.s)+0.05*gauss(),-1,1)}));
+        const votes=new Array(nf).fill(0);
+        for(const i of m){if(party[i]!==p||R()>P.primaryTurnout*(0.4+0.8*Math.hypot(be[i],bs[i])))continue;let bk=0,bu=-1e9;
+          for(let k=0;k<nf;k++){const c=cands[k],u=-Math.hypot(be[i]-c.e,bs[i]-c.s)+P.factionInfluence*(c.f.power*nf-1);if(u>bu){bu=u;bk=k}}
+          votes[bk]++;const f=cands[bk].f;f.vE+=be[i];f.vS+=bs[i];f.vN++}
+        let wk=0;for(let k=1;k<nf;k++)if(votes[k]>votes[wk]||(votes[k]===votes[wk]&&cands[k].f.power>cands[wk].f.power))wk=k;
+        noms[p]=cands[wk];cands[wk].f.noms++}
+      const v=[0,0];let voted=0;
+      for(const i of m){if(R()>P.turnout*(0.55+0.3*health[i]+0.15*edu[i]))continue;voted++;
+        const rq=P.retro*perceive(i,qol[i]-qolElec[i],0.02),lo=P.partyLoyalty*(0.5+pid[i]),ah=P.affVote*aff[i];
+        const u0=-Math.hypot(be[i]-noms[0].e,bs[i]-noms[0].s)+(party[i]===0?lo:-ah)+(S.gov===0?rq:-rq);
+        const u1=-Math.hypot(be[i]-noms[1].e,bs[i]-noms[1].s)+(party[i]===1?lo:-ah)+(S.gov===1?rq:-rq);
+        v[u0>u1?0:u1>u0?1:R()<0.5?0:1]++}
+      const tot=v[0]+v[1]||1,w=v[0]===v[1]?(R()<0.5?0:1):v[0]>v[1]?0:1;
+      seats[w]++;noms[w].f.wins++;noms[0].f.over+=v[0]/tot-0.5;noms[1].f.over+=v[1]/tot-0.5;
+      res[d]={w,share:v[w]/tot,f:noms[w].f.name,e:noms[w].e,s:noms[w].s,turnout:voted/m.length}}
+    const newGov=seats[0]>seats[1]?0:seats[1]>seats[0]?1:S.gov;
+    if(!first){
+      for(let p=0;p<2;p++){const fs=F.filter(f=>f.party===p);
+        const pv=fs.reduce((a,f)=>a+f.vN,0)||1;
+        const raw=fs.map(f=>{let r=0.05+f.vN/pv+(f.noms?0.5*f.over/f.noms:0);if(f.govShare>0)r*=clamp(1+P.rebuke*dQ*f.govShare,0.2,2);return Math.max(0.02,r)});
+        const sum=raw.reduce((a,b)=>a+b,0);fs.forEach((f,k)=>{f.power=(1-P.powerShift)*f.power+P.powerShift*raw[k]/sum})}
+      for(const f of F)if(f.vN){f.e+=P.factionDrift*(f.vE/f.vN-f.e);f.s+=P.factionDrift*(f.vS/f.vN-f.s)}
+      if(newGov!==S.gov)log(`Government flips to Party ${newGov?'B':'A'}`)}
+    S.gov=newGov;const gs=seats[newGov];let pe=0,ps=0,pn=0,pc=0;
+    for(const f of F){f.seats=f.wins;f.govShare=f.party===newGov&&gs?f.wins/gs:0;f.comp=clamp(1+P.policyNoise*gauss(),0.4,1.4);pc+=f.govShare*f.comp}
+    for(const r of res)if(r&&r.w===newGov){pe+=r.e;ps+=r.s;pn++}
+    setPolicy(pn?pe/pn:0,pn?ps/pn:0,pc||1);
+    S.seats=seats;S.results=res;qolElec.set(qol);S.lastMeanQ=meanQ;S.lastDQ=first?0:dQ;S.lastElection=S.tick;S.hist.el.push(S.tick);
+    log(`Election: A ${seats[0]} seats, B ${seats[1]} seats`);
+  }
+
+  // ---------- tick ----------
+  function step(){
+    const W=S.W,pp=S.pol,ND=W.ND,dens=W.dens,distOf=W.distOf,ctype=W.ctype;
+    S.tick++;maybeEvent();
+    S.natEcon=clamp(S.natEcon+0.004*(1-S.natEcon)+0.004*gauss(),0.4,1.6);
+    const econT=1+0.4*(pp.inf-0.25)*pp.comp-P.taxDrag*(pp.tax-0.25)-0.15*(pp.reg-0.5)-0.25*(1-pp.comp);
+    const revPC=S.revenue/N;
+    for(let d=0;d<ND;d++){localF[d]=clamp(localF[d]+0.002*(1-localF[d])+0.003*gauss(),0.3,1.8);
+      econD[d]=clamp(econD[d]+0.01*(econT*S.natEcon*localF[d]-econD[d]),0.2,2);
+      svc[d]+=0.004*(clamp(0.15+pp.inf*pp.comp*2.2*Math.min(1.5,revPC/0.28),0,1)-svc[d]);
+      poll[d]=Math.min(0.15,W.indShare[d]*(1-pp.reg)*1.5)}
+    const spend=S.revenue*pp.comp,welfarePer=spend*pp.wel/Math.max(1,S.recipients);
+    const hsub=Math.min(0.9,spend*pp.hea/N/0.12);S.healthSub=hsub;
+
+    // daily location + co-location buckets
+    cnt.fill(0);
+    for(let i=0;i<N;i++){const h=home[i];let l=h;
+      if(emp[i]===1&&R()<0.7)l=work[i];else if(R()<P.outing){const cl=W.commons[distOf[h]];if(cl.length)l=cl[R()*cl.length|0]}
+      loc[i]=l;cnt[l]++}
+    let s0=0;for(let c=0;c<CELLS;c++){start[c]=s0;s0+=cnt[c]}pos.set(start);
+    for(let i=0;i<N;i++)list[pos[loc[i]]++]=i;
+
+    // contacts
+    const cp=P.contactPull,tr=P.tieRate,nc=P.contacts|0;
+    for(let i=0;i<N;i++){const l=loc[i],n=cnt[l];if(n<2)continue;const st=start[l];
+      for(let t=0;t<nc;t++){const j=list[st+(R()*n|0)];if(j===i)continue;
+        const c2=P.boundedConf>0&&Math.hypot(be[j]-be[i],bs[j]-bs[i])>tol[i]?0:cp*sus(i);be[i]+=c2*(be[j]-be[i]);bs[i]+=c2*(bs[j]-bs[i]);
+        if(party[i]!==party[j])aff[i]=Math.max(0,aff[i]-P.contactThaw);
+        if(deg[i]<K&&deg[j]<K&&!tied(i,j)){const sm=sim(i,j);if(R()<tr*sm*sm)addTie(i,j)}}}
+
+    // economy, health, QoL, death, migration
+    let revenue=0,recipients=0,wageSum=0,wageN=0;const mw=S.meanWage;deaths.length=0;movers.length=0;
+    for(let i=0;i<N;i++){const h=home[i],d=distOf[h];age[i]+=1/365;let st=emp[i];
+      if(st!==2&&age[i]>=65&&R()<0.0015)st=2;
+      else if(st===0){if(age[i]<65&&R()<P.hireRate*econD[d]*(0.4+edu[i])*(0.8+0.8*pp.inf)){st=1;emp[i]=1;assignWork(i)}}
+      else if(st===1&&R()<P.layoffRate*(2.2-econD[d])*(0.85+0.3*pp.reg))st=0;
+      emp[i]=st;
+      let wage=0,tax=0,tr2=0;
+      if(st===1){wage=P.wage*(0.5+1.5*edu[i])*econD[d]*(ctype[h]===1?0.85:1);tax=wage*pp.tax*(0.5+0.5*wage/mw);wageSum+=wage;wageN++}
+      else{tr2=welfarePer;recipients++}
+      revenue+=tax;
+      let w=wealth[i]+wage-tax+tr2-(P.living*(0.6+0.6*dens[h])+0.3*(1-health[i])*(1-hsub)+wealth[i]*0.002)+wealth[i]*0.0003*econD[d];
+      let stress=0;if(w<0){w=0;stress=0.15}wealth[i]=w;wn[i]=wnorm(w);
+      const ht=0.89-Math.max(0,age[i]-40)*0.009-stress-(w<5?0.1:0)+0.15*hsub+0.15*W.comfort[h]-poll[d];
+      health[i]=clamp(health[i]+0.01*(ht-health[i])+0.004*gauss(),0,1);
+      qol[i]=calcQ(i);qolBase[i]+=P.qolMemory*(qol[i]-qolBase[i]);
+      if(R()<P.mortality*Math.exp((age[i]-60)/10)*(1.6-health[i])+(health[i]<0.08?0.003:0))deaths.push(i);
+      else if(qolBase[i]<P.moveThreshold&&w>P.moveCost&&R()<P.moveRate)movers.push(fam[i])}
+    S.revenue=revenue;S.recipients=recipients;S.meanWage=wageN?wageSum/wageN:mw;
+
+    // beliefs
+    const g=center(S.gov),sp=P.socialPull,qp=P.qolPull,bl=P.backlash,si=P.selfInterest,bn=P.beliefNoise;
+    const L=[leader(0),leader(1)],C=[center(0),center(1)];
+    const campaign=(S.lastElection+P.electionInterval)-S.tick<=60?P.campaignHeat:0;
+    for(let i=0;i<N;i++){let se=0,ss=0,sw=0,same=0,cross=0;const b=i*K,n=deg[i],fi=fam[i],pi=party[i];
+      const bc=P.boundedConf>0;
+      for(let k=0;k<n;k++){const j=net[b+k],fm=fam[j]===fi;if(!fm){if(party[j]===pi)same++;else cross++}
+        if(bc&&!fm&&Math.hypot(be[j]-be[i],bs[j]-bs[i])>tol[i])continue;const wt=fm?2:1;se+=wt*be[j];ss+=wt*bs[j];sw+=wt}
+      const e=be[i],s=bs[i];let de=0,ds=0;
+      if(sw>0){de+=sp*(se/sw-e);ds+=sp*(ss/sw-s)}
+      const dx=g[0]-e,dy=g[1]-s,dl=Math.hypot(dx,dy)+1e-6,pull=qp*perceive(i,qol[i]-qolBase[i],0.01);
+      de+=pull*dx/dl;ds+=pull*dy/dl;
+      const lc=P.leaderCue*pid[i];de+=lc*(L[pi].e-e);ds+=lc*(L[pi].s-s);
+      const sd=s-pp.soc;if(Math.abs(sd)>0.7)ds+=bl*Math.sign(sd);
+      de+=si*((wn[i]*2-1)*0.6-e);
+      const su=sus(i);
+      nbE[i]=clamp(e+su*(de+bn*gauss()),-1,1);nbS[i]=clamp(s+su*(ds+bn*gauss()),-1,1);
+      pid[i]+=P.idGrowth*(1-pid[i]);
+      const oc=C[1-pi],dOut=Math.hypot(e-oc[0],s-oc[1])/2.83,sh=same+cross?same/(same+cross):0.5;
+      aff[i]=clamp(aff[i]+P.affectRate*(clamp(0.1+0.3*pid[i]+0.35*sh+0.5*dOut,0,1)-aff[i])+campaign*pid[i],0,1)}
+    be.set(nbE);bs.set(nbS);
+
+    // tie dropping
+    const pdp=P.polDrop,rdp=P.randDrop;
+    for(let i=0;i<N;i++)for(let k=deg[i]-1;k>=0;k--){const j=net[i*K+k];if(j<i||fam[j]===fam[i])continue;
+      const de=be[i]-be[j],ds=bs[i]-bs[j];
+      let tl=Math.min(tol[i],tol[j]);if(party[i]!==party[j])tl*=1-P.affTie*Math.max(aff[i],aff[j]);
+      if((Math.sqrt(de*de+ds*ds)>tl&&R()<pdp)||R()<rdp)removeTie(i,j)}
+
+    for(const i of deaths)reborn(i);
+    for(const f of movers)if(famStamp[f]!==S.tick){famStamp[f]=S.tick;relocate(f)}
+    districtMeans();
+    if(S.tick%30===0){updateParty(false);gini()}
+    if(S.tick%5===0)stats();
+    if(S.tick%Math.max(10,P.electionInterval|0)===0)election(false);
+  }
+  function gini(){const a=Array.from(wealth).sort((x,y)=>x-y);let c=0,t=0;for(let i=0;i<a.length;i++){c+=(i+1)*a[i];t+=a[i]}
+    S.gini=t?(2*c)/(a.length*t)-(a.length+1)/a.length:0}
+  function stats(){let q=0,a=0,u=0,lf=0,me=0,ms=0,w=0,ec=0;
+    for(let i=0;i<N;i++){q+=qol[i];if(party[i]===0)a++;if(emp[i]!==2){lf++;if(emp[i]===0)u++}me+=be[i];ms+=bs[i];w+=wealth[i]}
+    me/=N;ms/=N;let v=0;for(let i=0;i<N;i++){const de=be[i]-me,ds=bs[i]-ms;v+=de*de+ds*ds}
+    for(let d=0;d<S.W.ND;d++)ec+=econD[d];
+    const cA=center(0),cB=center(1);let ux=cB[0]-cA[0],uy=cB[1]-cA[1];const ul=Math.hypot(ux,uy)||1;ux/=ul;uy/=ul;
+    let sx=0,sxx=0,sp=0,sxp=0,af=0,pd=0,xt=0,tt=0;
+    for(let i=0;i<N;i++){const x=(be[i]-cA[0])*ux+(bs[i]-cA[1])*uy,p=party[i];sx+=x;sxx+=x*x;sp+=p;sxp+=x*p;af+=aff[i];pd+=pid[i];
+      for(let k=0;k<deg[i];k++){const j=net[i*K+k];if(j<i||fam[j]===fam[i])continue;tt++;if(party[j]!==p)xt++}}
+    const vx=sxx/N-(sx/N)**2,vp=sp/N-(sp/N)**2,cov=sxp/N-(sx/N)*(sp/N);
+    Object.assign(S,{meanQ:q/N,shareA:a/N,unemp:lf?u/lf:0,polar:Math.sqrt(v/N),meanWealth:w/N,econ:ec/S.W.ND,meanE:me,meanS:ms,
+      sorting:vx>0&&vp>0?cov/Math.sqrt(vx*vp):0,affect:af/N,crossTies:tt?xt/tt:0,meanPid:pd/N});
+    const H=S.hist;H.t.push(S.tick);H.A.push(S.shareA);H.Q.push(S.meanQ);H.Pol.push(S.polar);H.U.push(S.unemp);
+    H.So.push(S.sorting);H.Af.push(S.affect);H.X.push(S.crossTies);
+    if(H.t.length>1500)for(const k of['t','A','Q','Pol','U','So','Af','X'])H[k].shift();
+    while(H.el.length&&H.el[0]<H.t[0])H.el.shift()}
+
+  function init(params){
+    P=params;R=mulberry32((P.seed|0)||1);
+    Object.assign(S,{tick:0,log:[],hist:{t:[],A:[],Q:[],Pol:[],U:[],So:[],Af:[],X:[],el:[]},results:[],deaths:0,moves:0,switches:0,gini:0,lastEvent:null});
+    buildWorld();
+    const ND=S.W.ND;econD=new Float32Array(ND).fill(1);localF=new Float32Array(ND).fill(1);svc=new Float32Array(ND).fill(0.5);
+    poll=new Float32Array(ND);dBE=new Float32Array(ND);dBS=new Float32Array(ND);dN=new Float32Array(ND);
+    buildAgents();
+    cnt=new Int32Array(CELLS);start=new Int32Array(CELLS);pos=new Int32Array(CELLS);list=new Int32Array(N);
+    Object.assign(S,{natEcon:1,revenue:0.28*N,recipients:N*0.3,meanWage:1.2,gov:0});
+    S.factions=FACTIONS.map(f=>({...f,power:1/3,comp:1,wins:0,noms:0,perf:0,govShare:0,seats:0}));
+    setPolicy(0,0,1);
+    for(let i=0;i<N;i++){qol[i]=calcQ(i);qolBase[i]=qolElec[i]=qol[i]}
+    districtMeans();updateParty(true);S.lastMeanQ=0;
+    election(true);gini();stats();
+    S.N=N;S.K=K;
+    S.A={pid,aff,home,loc,age,health,wealth,edu,be,bs,qol,qolBase,tol,emp,party,fam,famStart,net,deg,jx,jy};
+    S.D={econD,svc,poll,dBE,dBS,dN};
+  }
+  return {S,init,step,center};
+})();
+if(typeof module!=='undefined')module.exports={Sim,SCHEMA,PRESETS};
+</script>
+
+<script>
+const $=id=>document.getElementById(id);
+const params={},DEFAULTS={},inputs={};SCHEMA.forEach(([,items])=>items.forEach(it=>params[it[0]]=DEFAULTS[it[0]]=it[2]));
+
+// parameter boxes
+for(const[g,items]of SCHEMA){const h=document.createElement('h3');h.textContent=g;$('params').appendChild(h);
+  const grid=document.createElement('div');grid.className='grid';
+  for(const[k,label,def,step,st]of items){const b=document.createElement('label');b.className='box';
+    b.innerHTML=`<div class="k">${label}${st?' ↺':''}</div>`;const inp=document.createElement('input');
+    inp.type='number';inp.step=step;inp.value=def;inputs[k]=inp;inp.addEventListener('change',()=>{const v=parseFloat(inp.value);if(!isNaN(v))params[k]=v});
+    b.appendChild(inp);grid.appendChild(b)}
+  $('params').appendChild(grid)}
+
+const MS=1024,G=128,CS=MS/G;
+const view={s:1,ox:0,oy:0};let PX=new Float32Array(0),PY=new Float32Array(0);
+const map=$('map'),ctx=map.getContext('2d');
+const bgC=document.createElement('canvas');bgC.width=bgC.height=G;const bgX=bgC.getContext('2d'),bgImg=bgX.createImageData(G,G);
+const CA=[47,111,223],CB=[217,72,59];
+let running=false,sel=-1,dirty=true,frame=0;
+const lerp=(a,b,t)=>a+(b-a)*t;
+function ramp(t,o){t=Math.max(0,Math.min(1,t));const s=[[68,1,84],[33,145,140],[253,231,37]];
+  const k=t<0.5?0:1,u=t<0.5?t*2:(t-0.5)*2;for(let c=0;c<3;c++)o[c]=lerp(s[k][c],s[k+1][c],u)}
+const tmp=[0,0,0];
+
+function drawBg(){const S=Sim.S,W=S.W,mode=$('bg').value,d=bgImg.data;
+  for(let c=0;c<G*G;c++){const e=W.elev[c],land=e>W.WL;let r,g,b;
+    if(!land){r=40+e*120;g=80+e*150;b=150+e*150}
+    else if(mode==='terrain'){const t=(e-W.WL)/(1-W.WL);
+      if(t<0.5){r=lerp(110,165,t*2);g=lerp(150,150,t*2);b=lerp(90,100,t*2)}else{r=lerp(165,235,t*2-1);g=lerp(150,235,t*2-1);b=lerp(100,230,t*2-1)}
+      const u=W.dens[c]*0.6;r=lerp(r,150,u);g=lerp(g,150,u);b=lerp(b,155,u)}
+    else if(mode==='climate'){const t=W.temp[c];
+      if(t<0.5){r=lerp(80,220,t*2);g=lerp(120,210,t*2);b=lerp(200,120,t*2)}else{r=lerp(220,200,t*2-1);g=lerp(210,80,t*2-1);b=lerp(120,60,t*2-1)}
+      const f=0.7+0.3*(1-W.rain[c]);r*=f;g*=f;b*=f}
+    else if(mode==='land'){[r,g,b]=[[0,0,0],[175,195,135],[205,200,190],[115,115,130],[95,170,120]][W.ctype[c]]}
+    else if(mode==='districts'){const res=S.results[W.distOf[c]];
+      if(!res){r=g=b=200}else{const C=res.w?CB:CA,a=0.15+Math.min(0.35,(res.share-0.5)*1.5);r=lerp(235,C[0],a);g=lerp(235,C[1],a);b=lerp(235,C[2],a)}}
+    else{ramp((S.D.econD[W.distOf[c]]-0.6)/0.8,tmp);[r,g,b]=tmp}
+    const o=c*4;d[o]=r;d[o+1]=g;d[o+2]=b;d[o+3]=255}
+  bgX.putImageData(bgImg,0,0)}
+
+function agentColor(i,mode,o){const A=Sim.S.A;
+  if(mode==='belief'){const t=(A.be[i]+1)/2,s=A.bs[i];for(let c=0;c<3;c++){let v=lerp(CA[c],CB[c],t);v=s>0?v*(1-0.55*s):lerp(v,255,-0.55*s);o[c]=v}}
+  else if(mode==='party'){const C=A.party[i]?CB:CA;o[0]=C[0];o[1]=C[1];o[2]=C[2]}
+  else if(mode==='wealth')ramp(Math.log1p(A.wealth[i])/Math.log1p(500),o);
+  else if(mode==='health')ramp(A.health[i],o);
+  else if(mode==='qol')ramp((A.qol[i]-0.3)/0.6,o);
+  else if(mode==='pid')ramp(A.pid[i],o);
+  else if(mode==='aff')ramp(A.aff[i],o);
+  else{const C=[[220,60,50],[40,170,90],[140,140,150]][A.emp[i]];o[0]=C[0];o[1]=C[1];o[2]=C[2]}}
+
+const WALL=['#b9ab94','#e8dcc6','#f2ece0','#fbf7ee'],ROOF=['#6d6255','#9a5a3c','#7b3f2e','#3f4a66'],HSIZE=[3,4,5,6.5];
+function tierOf(mw){return mw<25?0:mw<90?1:mw<250?2:3}
+function drawHouse(x,y,t,cars,m){const h=HSIZE[t]*m,w=h,wall=h*0.55;
+  ctx.fillStyle=WALL[t];ctx.fillRect(x-w/2,y-wall,w,wall);if(t===3)ctx.fillRect(x+w/2,y-wall*0.7,w*0.5,wall*0.7);
+  ctx.beginPath();
+  if(t===0){ctx.moveTo(x-w/2-0.3,y-wall);ctx.lineTo(x+w/2+0.3,y-wall-h*0.25);ctx.lineTo(x+w/2+0.3,y-wall+0.2);ctx.lineTo(x-w/2-0.3,y-wall+0.4)}
+  else{ctx.moveTo(x-w/2-h*0.1,y-wall);ctx.lineTo(x,y-wall-h*0.5);ctx.lineTo(x+w/2+h*0.1,y-wall)}
+  ctx.closePath();ctx.fillStyle=ROOF[t];ctx.fill();
+  ctx.strokeRect(x-w/2,y-wall,w,wall);if(t===3)ctx.strokeRect(x+w/2,y-wall*0.7,w*0.5,wall*0.7);ctx.stroke();
+  for(let c=0;c<cars;c++){const cx=x+w/2+(t===3?w*0.5:0)+0.5*m+c*2.4*m;ctx.fillStyle='#34495e';ctx.fillRect(cx,y-1.1*m,2*m,1.1*m)}}
+const hscale=()=>Math.max(1,1.6/Math.sqrt(view.s));
+function layout(){const m=hscale(),S=Sim.S,A=S.A,N=S.N,daily=$('daily').checked,hs=$('houses').checked;
+  if(PX.length!==N){PX=new Float32Array(N);PY=new Float32Array(N)}
+  const fs=A.famStart,nf=fs.length-1;
+  for(let f=0;f<nf;f++){const a=fs[f],b=fs[f+1];if(b<=a)continue;const c=A.home[a];
+    const hx=(c%G+0.15+0.7*A.jx[a])*CS,hy=((c/G|0)+0.15+0.7*A.jy[a])*CS,n=b-a;
+    for(let i=a;i<b;i++){if(daily){const l=A.loc[i];PX[i]=(l%G+0.15+0.7*A.jx[i])*CS;PY[i]=((l/G|0)+0.15+0.7*A.jy[i])*CS}
+      else if(hs){PX[i]=hx+(i-a-(n-1)/2)*1.9*m;PY[i]=hy+1.3*m}
+      else{PX[i]=(c%G+0.15+0.7*A.jx[i])*CS;PY[i]=((c/G|0)+0.15+0.7*A.jy[i])*CS}}}}
+function agentXY(i){return[PX[i],PY[i]]}
+function clampView(){view.s=Math.max(1,Math.min(16,view.s));view.ox=Math.min(0,Math.max(MS-MS*view.s,view.ox));view.oy=Math.min(0,Math.max(MS-MS*view.s,view.oy))}
+function zoomAt(cx,cy,f){const wx=(cx-view.ox)/view.s,wy=(cy-view.oy)/view.s;view.s*=f;clampView();view.ox=cx-wx*view.s;view.oy=cy-wy*view.s;clampView();dirty=true}
+
+function render(){const S=Sim.S,W=S.W,A=S.A,N=S.N,mode=$('col').value,s=view.s;
+  layout();
+  ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,MS,MS);ctx.setTransform(s,0,0,s,view.ox,view.oy);
+  drawBg();ctx.imageSmoothingEnabled=false;ctx.drawImage(bgC,0,0,MS,MS);
+  const x0=-view.ox/s-10,y0=-view.oy/s-10,x1=(MS-view.ox)/s+10,y1=(MS-view.oy)/s+10;
+  const hm=hscale();
+  if($('houses').checked){ctx.strokeStyle='rgba(0,0,0,.55)';ctx.lineWidth=0.35*hm;const fs=A.famStart;
+    for(let f=0;f+1<fs.length;f++){const a=fs[f],b=fs[f+1];if(b<=a)continue;const c=A.home[a];
+      const hx=(c%G+0.15+0.7*A.jx[a])*CS,hy=((c/G|0)+0.15+0.7*A.jy[a])*CS;if(hx<x0||hx>x1||hy<y0||hy>y1)continue;
+      let tw=0;for(let i=a;i<b;i++)tw+=A.wealth[i];drawHouse(hx,hy,tierOf(tw/(b-a)),tw>800?2:tw>200?1:0,hm)}}
+  if(mode!=='none'){const r=($('houses').checked&&!$('daily').checked?0.85:1.1)*hm;
+    for(let i=0;i<N;i++){const x=PX[i],y=PY[i];if(x<x0||x>x1||y<y0||y>y1)continue;agentColor(i,mode,tmp);
+      ctx.fillStyle=`rgb(${tmp[0]|0},${tmp[1]|0},${tmp[2]|0})`;ctx.fillRect(x-r,y-r,2*r,2*r)}}
+  const D=W.D,step=MS/D;ctx.strokeStyle='rgba(0,0,0,.35)';ctx.lineWidth=1/s;ctx.beginPath();
+  for(let k=1;k<D;k++){ctx.moveTo(k*step,0);ctx.lineTo(k*step,MS);ctx.moveTo(0,k*step);ctx.lineTo(MS,k*step)}ctx.stroke();
+  ctx.fillStyle='rgba(0,0,0,.55)';ctx.font=`${13/s}px Arial`;for(let d=0;d<W.ND;d++)ctx.fillText(d+1,(d%D)*step+5/s,((d/D|0))*step+15/s);
+  if(S.lastEvent&&S.tick-S.lastEvent.t<120){ctx.strokeStyle='rgba(255,140,0,.9)';ctx.lineWidth=2/s;ctx.beginPath();
+    ctx.arc((S.lastEvent.x+.5)*CS,(S.lastEvent.y+.5)*CS,10*CS,0,7);ctx.stroke()}
+  if(sel>=0){const x=PX[sel],y=PY[sel];ctx.strokeStyle='rgba(0,0,0,.6)';ctx.lineWidth=1/s;ctx.beginPath();
+    for(let k=0;k<A.deg[sel];k++){const j=A.net[sel*S.K+k];ctx.moveTo(x,y);ctx.lineTo(PX[j],PY[j])}ctx.stroke();
+    ctx.strokeStyle='#fff';ctx.lineWidth=2/s;ctx.beginPath();ctx.arc(x,y,6/s+1,0,7);ctx.stroke()}
+  ctx.setTransform(1,0,0,1,0,0);dirty=false}
+
+function drawChart(id,SERIES){const c=$(id),x=c.getContext('2d'),H=Sim.S.hist,w=c.width,h=c.height,cs=getComputedStyle(document.body);
+  x.clearRect(0,0,w,h);const n=H.t.length;if(n<2)return;const t0=H.t[0],t1=H.t[n-1],X=t=>(t-t0)/(t1-t0||1)*(w-30)+28,Y=v=>h-6-v*(h-12);
+  x.strokeStyle=cs.getPropertyValue('--line');x.fillStyle=cs.getPropertyValue('--mute');x.font='10px Arial';x.lineWidth=1;
+  for(const v of[0,.5,1]){x.beginPath();x.moveTo(28,Y(v));x.lineTo(w,Y(v));x.stroke();x.fillText(v.toFixed(1),2,Y(v)+3)}
+  for(const t of H.el){x.beginPath();x.moveTo(X(t),0);x.lineTo(X(t),h);x.stroke()}
+  for(const[k,col]of SERIES){x.strokeStyle=col;x.lineWidth=1.5;x.beginPath();H[k].forEach((v,i)=>i?x.lineTo(X(H.t[i]),Y(v)):x.moveTo(X(H.t[i]),Y(v)));x.stroke()}}
+const S1=[['A','#2f6fdf','Party A share'],['Pol','#8a4fd0','Belief spread'],['So','#d9483b','Sorting'],['Af','#e08a1e','Affect'],['X','#2a9d5c','Cross-party ties']];
+const S2=[['Q','#2a9d5c','Mean QoL'],['U','#e08a1e','Unemployment']];
+const leg=(id,S)=>$(id).innerHTML=[...S.map(s=>[s[2],s[1]]),['Election','#999']].map(([l,c])=>`<span><i class="sw" style="background:${c}"></i>${l}</span>`).join('');
+leg('clegend',S1);leg('clegend2',S2);
+
+function boxes(el,pairs){if(el._n!==pairs.length){el.innerHTML=pairs.map(()=>'<div class="box"><div class="k"></div><div class="v"></div></div>').join('');el._n=pairs.length}
+  const ks=el.querySelectorAll('.k'),vs=el.querySelectorAll('.v');pairs.forEach(([k,v],i)=>{if(ks[i].textContent!==k)ks[i].textContent=k;vs[i].textContent=v})}
+const f2=v=>v.toFixed(2),pct=v=>(v*100).toFixed(1)+'%';
+
+function legend(){$('hlegend').style.display=$('houses').checked?'':'none';const m=$('col').value,sw=c=>`<i class="sw" style="background:rgb(${c})"></i>`;
+  $('legend').innerHTML={belief:`<span>${sw(CA)}Econ left</span><span>${sw(CB)}Econ right</span><span>Light: socially liberal</span><span>Dark: traditional</span>`,
+    party:`<span>${sw(CA)}Party A</span><span>${sw(CB)}Party B</span>`,
+    emp:`<span>${sw([40,170,90])}Employed</span><span>${sw([220,60,50])}Unemployed</span><span>${sw([140,140,150])}Retired</span>`}[m]
+    ||(m==='none'?'':`<span>${sw([68,1,84])}Low</span><span>${sw([253,231,37])}High</span>`)}
+
+function updateUI(){const S=Sim.S,p=S.pol,y=Math.floor(S.tick/365)+1;
+  boxes($('stats'),[['Year',y],['Day',S.tick%365],['Next election',(S.lastElection+params.electionInterval)-S.tick],
+    ['Government','Party '+(S.gov?'B':'A')],['Seats A',S.seats[0]],['Seats B',S.seats[1]],
+    ['Party A share',pct(S.shareA)],['Economy',f2(S.econ)],['Unemployment',pct(S.unemp)],['Mean QoL',f2(S.meanQ)],
+    ['Mean wealth',S.meanWealth.toFixed(0)],['Gini',f2(S.gini)],['Polarization',f2(S.polar)],['Mean econ',f2(S.meanE)],
+    ['Mean social',f2(S.meanS)],['Sorting',f2(S.sorting)],['Affect',f2(S.affect)],['Cross-party ties',pct(S.crossTies)],['Mean party ID',f2(S.meanPid)],['Party switches',S.switches],['Deaths',S.deaths],['Moves',S.moves],['Health subsidy',pct(S.healthSub||0)]]);
+  boxes($('policy'),[['Tax',pct(p.tax)],['Welfare',pct(p.wel)],['Health',pct(p.hea)],['Infrastructure',pct(p.inf)],
+    ['Green',pct(p.grn)],['Regulation',f2(p.reg)],['Social',f2(p.soc)],['Competence',f2(p.comp)]]);
+  $('fac').innerHTML='<tr><td class="small">Faction</td><td class="small">Power</td><td class="small">Econ</td><td class="small">Social</td><td class="small">Seats</td></tr>'+
+    S.factions.map(f=>`<tr><td>${f.name}</td><td><div class="bar"><i style="width:${(f.power*100).toFixed(0)}%;background:${f.party?'var(--B)':'var(--A)'}"></i></div></td><td>${f2(f.e)}</td><td>${f2(f.s)}</td><td>${f.seats}</td></tr>`).join('');
+  $('log').innerHTML=S.log.slice(0,30).map(l=>`<li>Y${Math.floor(l.t/365)+1} d${l.t%365}: ${l.msg}</li>`).join('');
+  if(sel>=0){const A=S.A,i=sel,f=A.fam[i];
+    boxes($('agent'),[['ID',i],['Age',A.age[i].toFixed(0)],['Health',f2(A.health[i])],['Wealth',A.wealth[i].toFixed(0)],
+      ['Education',f2(A.edu[i])],['Work',['Unemployed','Employed','Retired'][A.emp[i]]],['Econ belief',f2(A.be[i])],
+      ['Social belief',f2(A.bs[i])],['Party',A.party[i]?'B':'A'],['Party ID',f2(A.pid[i])],['Affect',f2(A.aff[i])],['QoL',f2(A.qol[i])],['QoL trend',f2(A.qol[i]-A.qolBase[i])],
+      ['Tolerance',f2(A.tol[i])],['Ties',A.deg[i]],['Household',A.famStart[f+1]-A.famStart[f]],['District',S.W.distOf[A.home[i]]+1]])}
+  else boxes($('agent'),[['Selection','Click the map']]);
+  drawChart('chart',S1);drawChart('chart2',S2)}
+
+function reset(){Sim.init(params);sel=-1;PX=new Float32Array(0);dirty=true;updateUI()}
+$('play').onclick=()=>{running=!running;$('play').textContent=running?'Pause':'Play'};
+$('stepb').onclick=()=>{Sim.step();dirty=true;updateUI()};
+$('reset').onclick=reset;
+for(const n of Object.keys(PRESETS)){const b=document.createElement('button');b.textContent=n;if(n==='Default')b.className='on';
+  b.onclick=()=>{const o=PRESETS[n];for(const k in DEFAULTS){params[k]=k in o?o[k]:DEFAULTS[k];inputs[k].value=params[k]}
+    document.querySelectorAll('#presets button').forEach(x=>x.classList.toggle('on',x===b));reset()};$('presets').appendChild(b)}
+for(const id of['bg','col','daily','houses'])$(id).addEventListener('change',()=>{dirty=true;legend()});
+const toCanvas=ev=>{const r=map.getBoundingClientRect();return[(ev.clientX-r.left)*MS/r.width,(ev.clientY-r.top)*MS/r.height]};
+map.addEventListener('wheel',ev=>{ev.preventDefault();const[cx,cy]=toCanvas(ev);zoomAt(cx,cy,Math.exp(-ev.deltaY*0.0015))},{passive:false});
+let drag=null;
+map.addEventListener('pointerdown',ev=>{drag={x:ev.clientX,y:ev.clientY,moved:false};map.setPointerCapture(ev.pointerId)});
+map.addEventListener('pointermove',ev=>{if(!drag)return;const r=map.getBoundingClientRect(),k=MS/r.width,dx=ev.clientX-drag.x,dy=ev.clientY-drag.y;
+  if(Math.abs(dx)+Math.abs(dy)>3)drag.moved=true;if(drag.moved){view.ox+=dx*k;view.oy+=dy*k;clampView();drag.x=ev.clientX;drag.y=ev.clientY;dirty=true}});
+map.addEventListener('pointerup',ev=>{const d=drag;drag=null;if(!d||d.moved)return;
+  const[cx,cy]=toCanvas(ev),mx=(cx-view.ox)/view.s,my=(cy-view.oy)/view.s,lim=(14/view.s)**2;
+  let best=-1,bd=lim;for(let i=0;i<Sim.S.N;i++){const d2=(PX[i]-mx)**2+(PY[i]-my)**2;if(d2<bd){bd=d2;best=i}}sel=best;dirty=true;updateUI()});
+$('zin').onclick=()=>zoomAt(MS/2,MS/2,1.6);$('zout').onclick=()=>zoomAt(MS/2,MS/2,1/1.6);$('zfit').onclick=()=>{view.s=1;view.ox=view.oy=0;dirty=true};
+const icon=(t,car)=>{const h=HSIZE[t]*2.2,w=h,wall=h*0.55,W=car?10:w+(t===3?w*0.5:0)+4,H=h+2;
+  return car?`<svg width="12" height="8"><rect x="1" y="2" width="10" height="5" fill="#34495e"/></svg>`
+  :`<svg width="${W}" height="${H}"><rect x="2" y="${H-wall-1}" width="${w}" height="${wall}" fill="${WALL[t]}" stroke="#555" stroke-width=".6"/>${t===3?`<rect x="${2+w}" y="${H-wall*0.7-1}" width="${w*0.5}" height="${wall*0.7}" fill="${WALL[t]}"/>`:''}<polygon points="${t===0?`1,${H-wall-1} ${w+3},${H-wall-1-h*0.25} ${w+3},${H-wall-1}`:`1,${H-wall-1} ${2+w/2},${H-wall-1-h*0.5} ${w+3},${H-wall-1}`}" fill="${ROOF[t]}"/></svg>`};
+$('hlegend').innerHTML=['Shack','Small house','House','Mansion'].map((n,t)=>`<span>${icon(t)}${n}</span>`).join('')+`<span>${icon(0,1)}Car</span><span>Dots under house: members</span>`;
+function loop(){if(running){const n=+$('speed').value;for(let k=0;k<n;k++)Sim.step();dirty=true}
+  if(dirty)render();if(running&&frame++%6===0)updateUI();requestAnimationFrame(loop)}
+legend();reset();loop();
+</script>
+</body>
+</html>
